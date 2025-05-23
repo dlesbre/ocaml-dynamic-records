@@ -21,11 +21,7 @@
  (name dynamic-record)
  (synopsis "Dynamic records allow adding new fields dynamically at any time")
  (description
-  "Anyone can add a field at any time to a dynamic record. "
-  "Newly added fields can be accessed even on record that were created before they were added. "
-  "Adding a field requires specifying a default value, which is used to initialize it. "
-  "Fields can be mutable or immutable. "
-  "One can only access the fields one knows exist. ")
+  "Anyone can add a field at any time to a dynamic record. Newly added fields can be accessed even on record that were created before they were added. Adding a field requires specifying a default value, which is used to initialize it. Fields can be mutable or immutable. One can only access the fields one knows exist. ")
  (depends ocaml)
  (tags
   ("dynamic record" your project)))

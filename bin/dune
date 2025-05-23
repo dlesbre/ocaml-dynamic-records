@@ -1,4 +1,0 @@
-(executable
- (public_name extendable-array)
- (name main)
- (libraries extendable_array))

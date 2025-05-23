@@ -1,0 +1,4 @@
+(library
+ (public_name dynamic-record)
+ (modules_without_implementation signatures)
+ (name dynamic_record))
