@@ -91,9 +91,6 @@ module type S = sig
       {!compare} and {!hash} functions, or better yet, implement them as operands.
   *)
 
-  type record = t
-  (** an alias to avoid some shadowing *)
-
   type 'a unary_operand
   (** A GADT representing possible unary operations on the record *)
 
@@ -152,13 +149,13 @@ module type S = sig
   (** Define a new record field with the given type and default value *)
   module Field(T: TYPE_AND_OPERANDS)() : FIELD
     with type field = T.t
-     and type record = record
+     and type record = t
      and type update = update
 
   (** A new record field that can be mutated *)
   module MutableField(T: TYPE_AND_OPERANDS)() : MUTABLE_FIELD
     with type field = T.t
-     and type record = record
+     and type record = t
      and type update = update
 
   (** {1 Record-wide operations} *)

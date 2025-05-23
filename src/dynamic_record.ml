@@ -3,7 +3,6 @@ include Signatures
 
 module Make(O: OPERANDS)() = struct
   type t = Obj.t array ref
-  type record = t
   type 'a unary_operand = 'a O.unary_operand
   type 'a binary_operand = 'a O.binary_operand
 
