@@ -94,9 +94,9 @@ module Make(O: OPERANDS)() = struct
   end
 
   module MutableField(T: TYPE_AND_OPERANDS)() = struct
-    type field = T.t
     type record = t
     type nonrec update = update
+    type t = T.t
 
     let offset =
       let offset = !size in
@@ -147,6 +147,7 @@ module Make(O: OPERANDS)() = struct
 
     let single_update x value = update x |> update' value |> finish
     let update = update'
+    let init value = init |> update value |> finish
   end
 
   module Field = MutableField
@@ -162,7 +163,7 @@ module NoOperands = struct
   let combine_binary (x: 'a binary_operand) _ _ = match x with _ -> .
 end
 
-module NoFieldOperand = struct
+module NoFieldOperands = struct
   let unary_operand: 'a empty -> 'b -> 'a = function _ -> .
   let binary_operand: 'a empty -> 'b -> 'b -> 'a = function _ -> .
 end

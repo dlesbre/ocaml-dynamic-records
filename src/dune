@@ -5,3 +5,6 @@
 (mdx
  (files *.mld *.mli)
  (libraries dynamic_record))
+
+(documentation
+ (package dynamic-record))

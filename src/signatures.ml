@@ -11,26 +11,32 @@ module type FIELD = sig
   type update
   (** The record's update type: see {!S.type-update} *)
 
-  type field
+  type t
   (** The field type, a part of the {!record} *)
 
-  val get: record -> field
+  val get: record -> t
   (** Get the field's value *)
 
-  val update: field -> update -> update
+  val update: t -> update -> update
   (** Modify this field as part of an update. See {!S.type-update}. *)
 
-  val single_update: record -> field -> record
+  val single_update: record -> t -> record
   (** Shorthand to create a variant of a record wich only modifies this field.
       [single_update record value] is equivalent to
       [MyRecord.update record |> MyField.update value |> MyRecord.finish] *)
+
+  val init: t -> record
+  (** [init value] creates a new record where all fields have their {{!Dynamic_record.S.TYPE_AND_OPERANDS.default}[default]} value except this
+      one, which is set to [value].
+
+      This is equivalent to [MyRecord.init |> MyField.update value |> MyRecord.finish] *)
 end
 
 (** The type of a record mutable field. An extension of {!FIELD}. *)
 module type MUTABLE_FIELD = sig
   include FIELD
 
-  val set: record -> field -> unit
+  val set: record -> t -> unit
   (** Set the field's value *)
 end
 
@@ -148,13 +154,13 @@ module type S = sig
 
   (** Define a new record field with the given type and default value *)
   module Field(T: TYPE_AND_OPERANDS)() : FIELD
-    with type field = T.t
+    with type t = T.t
      and type record = t
      and type update = update
 
   (** A new record field that can be mutated *)
   module MutableField(T: TYPE_AND_OPERANDS)() : MUTABLE_FIELD
-    with type field = T.t
+    with type t = T.t
      and type record = t
      and type update = update
 
@@ -174,21 +180,27 @@ module type S = sig
       version specifying each field's [equal] function, implement an [equal] operand.
 
       {b Warning:} using polymorphic [=] directly on records can lead to errors, i.e. some
-      records will be considered distinct despite having all field values equal. *)
+      records will be considered distinct despite having all field values equal.
+
+      Execution time is linear in the number of fields (with an early-return). *)
 
   val compare: t -> t -> int
   (** Comparison test on records, uses polymorphic [compare] to compare fields. For a more robust
       version specifying each field's [compare] function, implement an [compare] operand.
 
       {b Warning:} using polymorphic [compare] directly on records can lead to errors, i.e. some
-      records will be considered distinct despite having all field values equal. *)
+      records will be considered distinct despite having all field values equal.
+
+      Execution time is linear in the number of fields (with an early-return). *)
 
   val hash: t -> int
   (** Hash a record, using polymorphic [Hashtbl.hash] to hash fields. For a more robust
       version specifying each field's [hash] function, implement an [hash] operand.
 
       {b Warning:} using polymorphic [Hashtbl.hash] directly on records can lead to errors, i.e. some
-      records will be considered distinct despite having all field values equal. *)
+      records will be considered distinct despite having all field values equal.
+
+      Execution time is linear in the number of fields. *)
 
   val unary_operand: 'a unary_operand -> t -> 'a
   (** Compute a unary_operation on the whole record.

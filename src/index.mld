@@ -1,0 +1,358 @@
+{0 Library dynamic-record}
+
+This library contains a single module: {!Dynamic_record}.
+
+{1 Dynamic records}
+
+Dynamic records are similar to ocaml records, except that their number and order
+of fields isn't statically known. Fields can be added dynamically at any time,
+including after records have already been created. Each field comes with a
+{{!Dynamic_record.S.TYPE_AND_OPERANDS.default}[default]} value, which is used
+to initialize new records.
+
+Accessing fields and adding new fields are both constant time
+operations.
+
+{1:example Example usage}
+
+{2 Creating a record and fields}
+
+A dynamic record type can be created using the {!Dynamic_record.Make} functor.
+Fields can then be added using the {{!Dynamic_record.S.Field}[Field]} and
+{{!Dynamic_record.S.MutableField}[MutableField]} functors.
+
+For example, consider the following OCaml record:
+{[
+type person = {
+  name: string;
+  age: int;
+  mutable status: [`Superuser | `Admin | `User | `Unregistered];
+}
+]}
+
+You can create the equivalent as follows (ignore the {{!Dynamic_record.NoOperands}[NoOperands]} for now,
+they are discussed in detail in {!operands}):
+{[
+(* A record to represent information about a person *)
+module Person = Dynamic_record.Make(Dynamic_record.NoOperands)()
+
+module Name = Person.Field(struct
+  type t = string
+  let default = "<unnamed>"
+  include Dynamic_record.NoFieldOperands
+end)()
+
+module Age = Person.Field(struct
+  type t = int
+  let default = -1
+  include Dynamic_record.NoFieldOperands
+end)()
+
+module Status = Person.MutableField(struct
+  type t = [`Superuser | `Admin | `User | `Unregistered]
+  let default = `Unregistered
+  include Dynamic_record.NoFieldOperands
+end)()
+]}
+
+{2 Building records and accessing field values}
+
+Dynamic record use a secondary type, {{!Dynamic_record.S.type-update}[update]}, to
+represent list of changes to a record:
+- An {{!Dynamic_record.S.type-update}[update]} is created either from the empty
+  record via {{!Dynamic_record.S.init}[init]} or from an existing record via {{!Dynamic_record.S.val-update}[update]}
+  (similar to OCaml's [{x with ...}] syntax).
+- Once an update is created, you can chain the modification you wish to perform
+  via each {{!Dynamic_record.S.Field.val-update}[Field.update]} function.
+- Once all changes are listed, call {{!Dynamic_record.S.finish}[finish]} to create
+  the new record.
+
+For example, here is a series of OCaml definitions and updates, followed by their
+equivalent dynamic record definitions.
+{@ocaml[
+# (* Classic ocaml *) let john = {
+  name = "John Doe";
+  age = 21;
+  status = `User; };;
+val john : person = {name = "John Doe"; age = 21; status = `User}
+
+# let john' : Person.t = Person.init |>
+    Name.update "John Doe" |>
+    Age.update 21 |>
+    Status.update `User |>
+  Person.finish;;
+val john' : Status.record = <abstr>
+]}
+(The toplevel says [john'] is of type [Status.record], which is an alias for [Person.t]).
+
+Field values can be accesed via {{!Dynamic_record.FIELD.get}[Field.get]} and, for mutable fields,
+mutated via {{!Dynamic_record.MUTABLE_FIELD.set}[MutableField.set]}:
+{[
+# (* Classic ocaml *) john.name;;
+- : string = "John Doe"
+
+# (* Dynamic records *) Name.get john';;
+- : string = "John Doe"
+
+# (* Classic ocaml *) john.status <- `Admin;;
+- : unit = ()
+
+# (* Dynamic records *) Status.set john' `Admin;;
+- : unit = ()
+
+# Status.get john';;
+- : Status.t = `Admin
+]}
+
+
+Unlike OCaml records however, dynamic records can be under-specified. In that case,
+all underspecified fields have their {{!Dynamic_record.S.TYPE_AND_OPERANDS.default}[default]} value.
+{[
+# let jane : Person.t = Person.init |> Name.update "Jane Doe" |> Person.finish;;
+val jane : Status.record = <abstr>
+
+# Age.get jane;;
+- : int = -1
+]}
+When initializing a single field, an alias {{!Dynamic_record.FIELD.init}[Field.init]} is provided:
+{[
+# let jane : Person.t = Name.init "Jane Doe";;
+val jane : Status.record = <abstr>
+]}
+
+Fields can even be added after values have been created:
+{[
+module Friends = Person.MutableField(struct
+  type t = Person.t list (* Fields can also reference the record type itself! *)
+  let default = []
+  include Dynamic_record.NoFieldOperands
+end)()
+]}
+{[
+# Friends.get john';;
+- : Friends.t = []
+
+# Friends.set john' [jane];;
+- : unit = ()
+]}
+
+{2 Creating copies of records}
+
+Creating slight variants of record is done similarly to creating new records,
+simply replace the {{!Dynamic_record.S.init}[Record.init]} by a {{!Dynamic_record.S.val-update}[Record.update old_value]}:
+{[
+# (* Classic ocaml *) let john_clone = { john with age = 25 };;
+val john_clone : person = {name = "John Doe"; age = 25; status = `Admin}
+
+# (* Dynamic records *) let john'_clone = Person.update john' |> Age.update 25 |> Person.finish;;
+val john'_clone : Friends.record = <abstr>
+]}
+For single field updates, an alias {{!Dynamic_record.FIELD.single_update}[Field.single_update]}
+is provided:
+{[
+# let john'_clone = Age.single_update john' 25;;
+val john'_clone : Friends.record = <abstr>
+]}
+
+A {{!Dynamic_record.S.copy}[copy]} function is provided to create shallow copies of
+records.
+
+{1:operands Record-wide operations}
+
+Grouping data in records is nice, but what if we want to examine all fields of the record?
+For instance, to define a smarter equality function (the included {{!Dynamic_record.S.equal}[equal]}
+uses polymorphic equality to compare fields, which is far from ideal), or a printer,
+or a deep-copy function. This can be done through operands.
+
+Essentially, an operand is a fold on all record fields.
+- All possible operands are passed as an argument to {!Dynamic_record.Make} as two {{: https://ocaml.org/manual/5.3/gadts-tutorial.html}GADTs},
+  {{!Dynamic_record.OPERANDS.unary_operand}['a unary_operand]} for unary
+  functions (like print) returning ['a] and
+  {{!Dynamic_record.OPERANDS.binary_operand}['a binary_operand]} for binary
+  functions (like equal) returning ['a].
+- We must also specify an {{!Dynamic_record.OPERANDS.init_unary}[init_unary : 'a unary_operand -> 'a]}
+  function which specifies initial values (operand values
+  for the empty record) and a
+  {{!Dynamic_record.OPERANDS.combine_unary}[combine_unary : 'a unary_operand -> 'a -> 'a -> 'a]}
+  which merges operand from different values.
+- Finally, each field functor must specify how the operand acts on the field.
+
+In our previous {{!example}example}, we used the {{!Dynamic_record.NoOperands}[NoOperands]},
+which specifies ['a unary_operand] as {{!Dynamic_record.empty}['a empty]}, a type with no values.
+Let us now redefine the same record, but with an [equal], [compare], [hash] and [print]
+operand. First, we define the operand module that specifies all four of these operands
+(two unary and two binary) and how their results are initialized and combined.
+{[
+module Operands = struct
+  type _ unary_operand =
+    | Hash : int unary_operand
+    | Format : Format.formatter -> unit unary_operand (* Extra parameters are stored in the constructor *)
+
+  (* GADTs require explicit type annotations *)
+  let init_unary: type a. a unary_operand -> a = function
+    | Hash -> 0
+    | Format _fmt -> ()
+
+  let combine_unary : type a. a unary_operand -> a -> a -> a = fun op l r -> match op with
+    | Hash -> l lxor r (* don't use this as a real hash, it's just an example *)
+    | Format fmt -> Format.pp_print_space fmt ()
+
+  type _ binary_operand =
+    | Equal : bool binary_operand
+    | Compare : int binary_operand
+
+  let init_binary: type a. a binary_operand -> a = function
+    | Equal -> true
+    | Compare -> 0
+
+  let combine_binary: type a. a binary_operand -> a -> a -> a = fun op l r ->
+    match op with (* You could use exceptions for fast-return here *)
+    | Equal -> l && r
+    | Compare -> if l <> 0 then l else r
+end
+]}
+
+Now we can define the record and fields:
+{[
+(* A record to represent information about a person *)
+module Person = Dynamic_record.Make(Operands)()
+
+module Name = Person.Field(struct
+  type t = string
+  let default = "<unnamed>"
+  let unary_operand: type a. a Operands.unary_operand -> t -> a = fun op v ->
+    match op with
+    | Hash -> Hashtbl.hash v
+    | Format fmt -> Format.fprintf fmt "@[name=%s;@]" v
+  let binary_operand: type a. a Operands.binary_operand -> t -> t -> a = fun op vl vr ->
+    match op with
+    | Equal -> String.equal vl vr
+    | Compare -> String.compare vl vr
+end)()
+
+module Age = Person.Field(struct
+  type t = int
+  let default = -1
+  include Dynamic_record.NoFieldOperands
+  let unary_operand: type a. a Operands.unary_operand -> t -> a = fun op v ->
+    match op with
+    | Hash -> v
+    | Format fmt -> Format.fprintf fmt "@[age=%d;@]" v
+  let binary_operand: type a. a Operands.binary_operand -> t -> t -> a = fun op vl vr ->
+    match op with
+    | Equal -> Int.equal vl vr
+    | Compare -> Int.compare vl vr
+end)()
+
+module Status = Person.MutableField(struct
+  type t = [`Superuser | `Admin | `User | `Unregistered]
+  let default = `Unregistered
+  let unary_operand: type a. a Operands.unary_operand -> t -> a = fun op v ->
+    match op with
+    | Hash -> (match v with
+        | `Superuser -> 0
+        | `Admin -> 1
+        | `User -> 2
+        | `Unregistered -> 3)
+    | Format fmt -> Format.fprintf fmt "@[status=%s;@]" (match v with
+        | `Superuser -> "Superuser"
+        | `Admin -> "Admin"
+        | `User -> "User"
+        | `Unregistered -> "Unregistered")
+  let binary_operand: type a. a Operands.binary_operand -> t -> t -> a = fun op vl vr ->
+    match op with
+    | Equal -> vl = vr (* or implement custom equality *)
+    | Compare -> compare vl vr
+end)()
+]}
+
+Using the operands can then be done by calling {{!Dynamic_record.S.val-unary_operand}[Person.unary_operand]}
+or  {{!Dynamic_record.S.val-binary_operand}[Person.binary_operand]}. In practice,
+its is often a good idea to wrap these into separate functions:
+{[
+# let equal_person = Person.binary_operand Operands.Equal;;
+val equal_person : Status.record -> Status.record -> bool = <fun>
+
+# let compare_person = Person.binary_operand Operands.Compare;;
+val compare_person : Status.record -> Status.record -> int = <fun>
+
+# let hash_person = Person.unary_operand Operands.Hash;;
+val hash_person : Status.record -> int = <fun>
+
+# let print_person = Format.printf "@[{|@, @[<hov>%a@]|}@]@." (fun fmt -> Person.unary_operand (Operands.Format fmt));;
+val print_person : Status.record -> unit = <fun>
+]}
+Which can now be used like any other function:
+{[
+# let john : Person.t = Person.init |>
+    Name.update "John Doe" |>
+    Age.update 21 |>
+    Status.update `User |>
+  Person.finish;;
+val john : Status.record = <abstr>
+
+# print_person john;;
+{| name=John Doe; age=21; status=User; |}
+- : unit = ()
+
+# equal_person john john;;
+- : bool = true
+
+# equal_person john (Age.single_update john 24);;
+- : bool = false
+]}
+
+{2 Operations returning records}
+
+In order to implement a [clone] operator however, we need {{: https://ocaml.org/manual/4.11/manual024.html}recursive modules}
+so that the operand module can access the type of the record.
+{[
+module rec Operands : sig
+  type _ unary_operand =
+    | Clone: Person.update unary_operand
+    (* return an update since we don't want to copy the whole record for each field *)
+
+  include Dynamic_record.OPERANDS with type 'a unary_operand := 'a unary_operand
+end = struct
+  include Dynamic_record.NoOperands
+  (* So that we don't have to define the binary_operands *)
+
+  type _ unary_operand =
+    | Clone: Person.update unary_operand
+
+  let init_unary: type a. a unary_operand -> a = function
+    | Clone -> Person.init
+
+  let combine_unary : type a. a unary_operand -> a -> a -> a = fun op l r -> match op with
+    | Clone -> l
+end
+and Person
+  : Dynamic_record.S
+      with type 'a unary_operand = 'a Operands.unary_operand
+       and type 'a binary_operand = 'a Dynamic_record.empty
+  = Dynamic_record.Make(Operands)()
+]}
+{[
+# let clone record = Person.unary_operand Operands.Clone record |> Person.finish;;
+val clone : Person.t -> Person.t = <fun>
+]}
+
+{1 Example use cases}
+
+Dynamic records allow different separate modules to store information in the same
+space, while keeping each information (field declaration) local to each module.
+This can be useful when building a program that supports modular plugins - each plugin
+may or may not be loaded, and plugins may require adding information to a global state.
+
+Specifically, I've found a need for such records in two cases:
+
+- When building a command-line application, each module declares its command line
+  options individually. Dynamic records allow storing the program configuration
+  in a single space without having to group all these command line option declarations.
+  In turn, this makes merging options coming from the command line and options
+  coming from a configuration file easier.
+
+- When building a modular static analyser, the user can select which analysis to
+  run a runtime, and each analysis might need to store some information in the
+  global analyser state. Using dynamic record enables each analysis to extend the
+  global state with the fields it needs.

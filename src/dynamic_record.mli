@@ -30,10 +30,10 @@ module NoOperands : OPERANDS
       module IntField = Record.Field(struct
         type t = int
         let default = -1
-        include NoFieldOperand
+        include NoFieldOperands
       end)
     ]} *)
-module NoFieldOperand : sig
+module NoFieldOperands : sig
   val unary_operand: 'a empty -> 'b -> 'a
   val binary_operand: 'a empty -> 'b -> 'b -> 'a
 end
