@@ -154,16 +154,16 @@ module Make(O: OPERANDS)() = struct
 end
 
 module NoOperands = struct
-  type 'a unary_operand = 'a empty
+  type 'a unary_operand = empty
   let init_unary (x: 'a unary_operand) = match x with _ -> .
   let combine_unary (x: 'a unary_operand) _ _ = match x with _ -> .
 
-  type 'a binary_operand = 'a empty
+  type 'a binary_operand = empty
   let init_binary (x: 'a binary_operand) = match x with _ -> .
   let combine_binary (x: 'a binary_operand) _ _ = match x with _ -> .
 end
 
 module NoFieldOperands = struct
-  let unary_operand: 'a empty -> 'b -> 'a = function _ -> .
-  let binary_operand: 'a empty -> 'b -> 'b -> 'a = function _ -> .
+  let unary_operand: empty -> 'b -> 'a = function _ -> .
+  let binary_operand: empty -> 'b -> 'b -> 'a = function _ -> .
 end

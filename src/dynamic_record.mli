@@ -17,8 +17,8 @@ module Make(Operands: OPERANDS)() : S
 (** An operand specification for empty operands (no record wide unary or binary functions).
     Used as argument to {!Make}. *)
 module NoOperands : OPERANDS
-  with type 'a unary_operand = 'a empty
-   and type 'a binary_operand = 'a empty
+  with type 'a unary_operand = empty
+   and type 'a binary_operand = empty
 
 (** Use this module in the functor arguments of {!Make.Field} or {!Make.MutableField}
     when not using any operands (passing {!NoOperands} to {!Make}).
@@ -34,6 +34,6 @@ module NoOperands : OPERANDS
       end)
     ]} *)
 module NoFieldOperands : sig
-  val unary_operand: 'a empty -> 'b -> 'a
-  val binary_operand: 'a empty -> 'b -> 'b -> 'a
+  val unary_operand: empty -> 'b -> 'a
+  val binary_operand: empty -> 'b -> 'b -> 'a
 end

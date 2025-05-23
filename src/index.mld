@@ -327,9 +327,9 @@ end = struct
     | Clone -> l
 end
 and Person
-  : Dynamic_record.S
+  : Dynamic_record.S (* Exposing the operand type is mandatory to implement Fields *)
       with type 'a unary_operand = 'a Operands.unary_operand
-       and type 'a binary_operand = 'a Dynamic_record.empty
+       and type 'a binary_operand = Dynamic_record.empty
   = Dynamic_record.Make(Operands)()
 ]}
 {[

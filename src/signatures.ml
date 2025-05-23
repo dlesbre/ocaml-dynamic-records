@@ -209,5 +209,5 @@ module type S = sig
   val binary_operand: 'a binary_operand -> t -> t -> 'a
 end
 
-type 'a empty = |
+type empty = |
 (** An empty type, used to implement empty operands. *)
