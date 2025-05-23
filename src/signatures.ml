@@ -57,9 +57,6 @@ module type OPERANDS = sig
       Operands
   *)
 
-  val combine_unary: 'a unary_operand -> 'a -> 'a -> 'a
-  (** [combine_unary op v1 v2] should combine the values [v1] and [v2]. *)
-
   val init_unary: 'a unary_operand -> 'a
   (** [init_unary op] should return an initial value for the given operand.
       This is also the value this operand would have on the empty record (one with no fields). *)
@@ -73,9 +70,6 @@ module type OPERANDS = sig
           | Compare : ('r, int) binary_operand
       ]}
   *)
-
-  val combine_binary: 'a binary_operand -> 'a -> 'a -> 'a
-  (** Same as {!combine_unary}, but for {!binary_operand}. *)
 
   val init_binary: 'a binary_operand -> 'a
   (** Same as {!init_unary}, but for {!binary_operand}. *)
@@ -145,10 +139,10 @@ module type S = sig
     val default: t
     (** A default value used to initialize the new field *)
 
-    val unary_operand: 'a unary_operand -> t -> 'a
+    val unary_operand: 'a unary_operand -> 'a -> t -> 'a
     (** Specify how each unary_operand acts on this field *)
 
-    val binary_operand: 'a binary_operand -> t -> t -> 'a
+    val binary_operand: 'a binary_operand -> 'a -> t -> t -> 'a
     (** Specify how each binary_operand acts on this field *)
   end
 

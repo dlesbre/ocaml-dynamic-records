@@ -6,8 +6,8 @@ module Make(O: OPERANDS)() = struct
   type 'a unary_operand = 'a O.unary_operand
   type 'a binary_operand = 'a O.binary_operand
 
-  type unary_wrapper = { f_unary: 'a. 'a unary_operand -> Obj.t -> 'a } [@@unboxed]
-  type binary_wrapper = { f_binary: 'a. 'a binary_operand -> Obj.t -> Obj.t -> 'a } [@@unboxed]
+  type unary_wrapper = { f_unary: 'a. 'a unary_operand -> 'a -> Obj.t -> 'a } [@@unboxed]
+  type binary_wrapper = { f_binary: 'a. 'a binary_operand -> 'a -> Obj.t -> Obj.t -> 'a } [@@unboxed]
 
   (** A value for extra fields *)
   let uninit_default = Obj.repr "nil"
@@ -54,8 +54,7 @@ module Make(O: OPERANDS)() = struct
     if i >= !size then acc
     else
       get i r |>
-      !unary_operands.(i).f_unary op |>
-      O.combine_unary op acc |>
+      !unary_operands.(i).f_unary op acc |>
       unary_operand op r (i+1)
 
   let unary_operand op r = unary_operand op r 0 (O.init_unary op)
@@ -65,8 +64,7 @@ module Make(O: OPERANDS)() = struct
     else
       let vl = get i l in
       let vr = get i r in
-      !binary_operands.(i).f_binary op vl vr |>
-      O.combine_binary op acc |>
+      !binary_operands.(i).f_binary op acc vl vr |>
       binary_operand op l r (i+1)
   let binary_operand op l r = binary_operand op l r 0 (O.init_binary op)
 
@@ -89,8 +87,8 @@ module Make(O: OPERANDS)() = struct
   module type TYPE_AND_OPERANDS = sig
     type t
     val default: t
-    val unary_operand: 'a unary_operand -> t -> 'a
-    val binary_operand: 'a binary_operand -> t -> t -> 'a
+    val unary_operand: 'a unary_operand -> 'a -> t -> 'a
+    val binary_operand: 'a binary_operand -> 'a -> t -> t -> 'a
   end
 
   module MutableField(T: TYPE_AND_OPERANDS)() = struct
@@ -104,8 +102,8 @@ module Make(O: OPERANDS)() = struct
       begin if Array.length !defaults >= !size
         then begin
           !defaults.(offset) <- Obj.repr T.default;
-          !unary_operands.(offset) <- {f_unary=fun op r -> T.unary_operand op (Obj.obj r)};
-          !binary_operands.(offset) <- {f_binary=fun op l r -> T.binary_operand op (Obj.obj l) (Obj.obj r)};
+          !unary_operands.(offset) <- {f_unary=fun op acc r -> T.unary_operand op acc (Obj.obj r)};
+          !binary_operands.(offset) <- {f_binary=fun op acc l r -> T.binary_operand op acc (Obj.obj l) (Obj.obj r)};
         end else begin
           let newsize = 2 * !size in
           defaults := Array.init newsize (fun i ->
@@ -115,12 +113,12 @@ module Make(O: OPERANDS)() = struct
           );
           unary_operands := Array.init newsize (fun i ->
             if i < offset then !unary_operands.(i)
-            else if i = offset then {f_unary=fun op r -> T.unary_operand op (Obj.obj r)}
+            else if i = offset then {f_unary=fun op acc r -> T.unary_operand op acc (Obj.obj r)}
             else uninit_unary
           );
           binary_operands := Array.init newsize (fun i ->
             if i < offset then !binary_operands.(i)
-            else if i = offset then {f_binary=fun op l r -> T.binary_operand op (Obj.obj l) (Obj.obj r)}
+            else if i = offset then {f_binary=fun op acc l r -> T.binary_operand op acc (Obj.obj l) (Obj.obj r)}
             else uninit_binary
           )
         end end;
@@ -156,14 +154,12 @@ end
 module NoOperands = struct
   type 'a unary_operand = empty
   let init_unary (x: 'a unary_operand) = match x with _ -> .
-  let combine_unary (x: 'a unary_operand) _ _ = match x with _ -> .
 
   type 'a binary_operand = empty
   let init_binary (x: 'a binary_operand) = match x with _ -> .
-  let combine_binary (x: 'a binary_operand) _ _ = match x with _ -> .
 end
 
 module NoFieldOperands = struct
-  let unary_operand: empty -> 'b -> 'a = function _ -> .
-  let binary_operand: empty -> 'b -> 'b -> 'a = function _ -> .
+  let unary_operand: empty -> 'a -> 'b -> 'a = function _ -> .
+  let binary_operand: empty -> 'a -> 'b -> 'b -> 'a = function _ -> .
 end

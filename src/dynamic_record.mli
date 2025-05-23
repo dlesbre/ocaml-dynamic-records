@@ -34,6 +34,6 @@ module NoOperands : OPERANDS
       end)
     ]} *)
 module NoFieldOperands : sig
-  val unary_operand: empty -> 'b -> 'a
-  val binary_operand: empty -> 'b -> 'b -> 'a
+  val unary_operand: empty -> 'a -> 'b -> 'a
+  val binary_operand: empty -> 'a -> 'b -> 'b -> 'a
 end
