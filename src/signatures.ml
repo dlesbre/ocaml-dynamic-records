@@ -40,21 +40,23 @@ module type MUTABLE_FIELD = sig
   (** Set the field's value *)
 end
 
+(** A description of operands that act on the whole record. This is passed
+    as a parameter to the {!Make} functor.
+    For more details, see {!index.operands}. *)
 module type OPERANDS = sig
   type 'a unary_operand
   (** A type reprensenting the record-wide unary operands
       (functions with type [t -> 'a]), The type parameter ['r] is [t],
       it is passed as a parameter since it isn't defined yet.
 
-      For example, a print formatter and a clone operator
+      For example, a print formatter and a hash operator
       {[
         type 'a unary_operand =
-          | ToString : string unary_operand
+          | Hash : int unary_operand
           | Format : Format.formatter -> unit unary_operand (** Extra arguments can be embedded in the constructor. *)
-          | Clone : t unary_operand (** Requires recursive modules to acces the record type t *)
       ]}
 
-      Operands
+      For more details, see {!index.operands}.
   *)
 
   val init_unary: 'a unary_operand -> 'a
@@ -69,11 +71,20 @@ module type OPERANDS = sig
           | Equal : ('r, bool) binary_operand
           | Compare : ('r, int) binary_operand
       ]}
+
+      For more details, see {!index.operands}.
   *)
 
   val init_binary: 'a binary_operand -> 'a
   (** Same as {!init_unary}, but for {!binary_operand}. *)
 end
+
+(** This type is used to specify default values for new fields (in {!S.FIELD_PARAMETER})
+    or {!S.field_parameter}.*)
+type 'a default =
+  | Value of 'a (** Default constant value, shared across all records *)
+  | Initializer of (unit -> 'a)
+  (** Default initializer, called once (lazily when the field is accessed, not when the record is constructed) for each record. *)
 
 (** The type of a dynamic record.
 
@@ -92,10 +103,12 @@ module type S = sig
   *)
 
   type 'a unary_operand
-  (** A GADT representing possible unary operations on the record *)
+  (** A GADT representing possible unary operations on the record.
+      For more details, see {!index.operands}. *)
 
   type 'a binary_operand
-  (** A GADT representing possible binary operations on the record *)
+  (** A GADT representing possible binary operations on the record.
+      For more details, see {!index.operands}. *)
 
   type update
   (** An update represents a set of changes of a record.
@@ -141,14 +154,16 @@ module type S = sig
     type t
     (** The type of the new field *)
 
-    val default: t
+    val default: t default
     (** A default value used to initialize the new field *)
 
     val unary_operand: 'a unary_operand -> 'a -> t -> 'a
-    (** Specify how each unary_operand acts on this field *)
+    (** Specify how each unary_operand acts on this field.
+        For more details, see {!index.operands}. *)
 
     val binary_operand: 'a binary_operand -> 'a -> t -> t -> 'a
-    (** Specify how each binary_operand acts on this field *)
+    (** Specify how each binary_operand acts on this field.
+        For more details, see {!index.operands}. *)
   end
 
   (** Define a new record field with the given type and default value, equivalent to the {!val-field} function. *)
@@ -172,7 +187,7 @@ module type S = sig
       This is equivalent to {{!FIELD_PARAMETER}[FIELD_PARAMETER with type t = 'a]}
       in the functorial interface.*)
   type 'a field_parameter = {
-    default: 'a; (** See {!FIELD_PARAMETER.default} *)
+    default: 'a default; (** See {!FIELD_PARAMETER.default} *)
     unary_operand: 'b. 'b unary_operand -> 'b -> 'a -> 'b; (** See {!FIELD_PARAMETER.unary_operand} *)
     binary_operand: 'b. 'b binary_operand -> 'b -> 'a -> 'a -> 'b; (** See {!FIELD_PARAMETER.binary_operand} *)
   }
@@ -244,9 +259,11 @@ module type S = sig
 
   val unary_operand: 'a unary_operand -> t -> 'a
   (** Compute a unary_operation on the whole record.
-      *)
+      For more details, see {!index.operands}. *)
 
   val binary_operand: 'a binary_operand -> t -> t -> 'a
+  (** Compute a binary_operation on the whole record.
+      For more details, see {!index.operands}. *)
 end
 
 type empty = |

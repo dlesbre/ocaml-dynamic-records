@@ -1,6 +1,8 @@
 
 include Signatures
 
+let error msg = failwith ("dynamic-records internal error: " ^ msg)
+
 module Make(O: OPERANDS)() = struct
   type t = Obj.t array ref
   type 'a unary_operand = 'a O.unary_operand
@@ -10,11 +12,24 @@ module Make(O: OPERANDS)() = struct
   type binary_wrapper = { f_binary: 'a. 'a binary_operand -> 'a -> Obj.t -> Obj.t -> 'a } [@@unboxed]
 
   (** A value for extra fields *)
-  let uninit_default = Obj.repr "nil"
-  let uninit_unary = { f_unary=fun _ _ -> failwith "Internal error: Uninitilized unary operand"}
-  let uninit_binary = { f_binary=fun _ _ _ -> failwith "Internal error: Uninitilized unary operand"}
+  type defaults =
+    | DValue of Obj.t
+    | DInit of (unit -> Obj.t)
+    | DUninitialized
+  let uninit_default = DUninitialized
+  let uninit_unary = { f_unary=fun _ _ -> error "Uninitilized unary operand"}
+  let uninit_binary = { f_binary=fun _ _ _ -> error "Uninitilized unary operand"}
 
   let initial_size = 5
+
+  let defaults_of_default = function
+    | Value x -> DValue (Obj.repr x)
+    | Initializer f -> DInit (fun () -> Obj.repr (f ()))
+
+  let value_of_default = function
+    | DValue x -> x
+    | DInit f -> f ()
+    | DUninitialized -> error "Uninitialized default value"
 
   (* INVARIANT:
     - all three of these arrays always have the same size,
@@ -33,22 +48,25 @@ module Make(O: OPERANDS)() = struct
   let update t = FromPrev { max = Array.length !t - 1; update = []; prev = t }
 
   let finish x =
-    let array, update = match x with
-    | FromNil {max;update} -> Array.init (max+1) (fun i -> !defaults.(i)), update
+    let array = match x with
+    | FromNil {max;update} -> Array.init (max+1) (fun i ->
+        match List.assoc_opt i update with
+        | Some v -> v
+        | None -> value_of_default !defaults.(i))
     | FromPrev {max;update;prev} -> Array.init (max+1) (fun i ->
-                                      if i < Array.length !prev
-                                      then !prev.(i)
-                                      else !defaults.(i)), update
-    in
-    List.iter (fun (i,v) -> array.(i) <- v) update;
-    ref array
+        match List.assoc_opt i update with
+        | Some v -> v
+        | None -> if i < Array.length !prev
+                  then !prev.(i)
+                  else value_of_default !defaults.(i))
+    in ref array
 
   let copy x = ref (Array.copy !x)
 
   let get offset t =
     if offset < Array.length !t
     then Array.unsafe_get !t offset |> Obj.obj
-    else !defaults.(offset)
+    else value_of_default !defaults.(offset)
 
   let rec unary_operand op r i acc =
     if i >= !size then acc
@@ -86,7 +104,7 @@ module Make(O: OPERANDS)() = struct
 
   module type FIELD_PARAMETER = sig
     type t
-    val default: t
+    val default: t default
     val unary_operand: 'a unary_operand -> 'a -> t -> 'a
     val binary_operand: 'a binary_operand -> 'a -> t -> t -> 'a
   end
@@ -101,14 +119,14 @@ module Make(O: OPERANDS)() = struct
       incr size;
       begin if Array.length !defaults >= !size
         then begin
-          !defaults.(offset) <- Obj.repr T.default;
+          !defaults.(offset) <- defaults_of_default T.default;
           !unary_operands.(offset) <- {f_unary=fun op acc r -> T.unary_operand op acc (Obj.obj r)};
           !binary_operands.(offset) <- {f_binary=fun op acc l r -> T.binary_operand op acc (Obj.obj l) (Obj.obj r)};
         end else begin
           let newsize = 2 * !size in
           defaults := Array.init newsize (fun i ->
             if i < offset then !defaults.(i)
-            else if i = offset then Obj.repr T.default
+            else if i = offset then defaults_of_default T.default
             else uninit_default
           );
           unary_operands := Array.init newsize (fun i ->
@@ -133,7 +151,7 @@ module Make(O: OPERANDS)() = struct
       else t := Array.init (offset+1) (fun i ->
         if i < len then Array.unsafe_get !t i
         else if i == offset then v
-        else Array.unsafe_get !defaults i
+        else value_of_default (Array.unsafe_get !defaults i)
       )
 
 
@@ -151,7 +169,7 @@ module Make(O: OPERANDS)() = struct
   module Field = MutableField
 
   type 'a field_parameter = {
-    default: 'a;
+    default: 'a default;
     unary_operand: 'b. 'b unary_operand -> 'b -> 'a -> 'b;
     binary_operand: 'b. 'b binary_operand -> 'b -> 'a -> 'a -> 'b;
   }

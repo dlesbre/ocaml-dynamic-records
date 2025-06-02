@@ -29,7 +29,7 @@ module NoOperands : OPERANDS
 
       module IntField = Record.Field(struct
         type t = int
-        let default = -1
+        let default = Value (-1)
         include NoFieldOperands
       end)
     ]} *)

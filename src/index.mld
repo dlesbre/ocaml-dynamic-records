@@ -26,12 +26,16 @@ For example, consider the following OCaml record:
 type person = {
   name: string;
   age: int;
+  use_name: string ref; (* example of a field whose contents are mutable *)
   mutable status: [`Superuser | `Admin | `User | `Unregistered];
 }
 ]}
 
 You can create the equivalent as follows (ignore the {{!Dynamic_record.NoOperands}[NoOperands]} for now,
-they are discussed in detail in {!operands}):
+they are discussed in detail in {!operands}). Each field requires a default value,
+which can be specified via the {{!Dynamic_record.default}['a default]} type,
+which is either a fixed {!Dynamic_record.Value}, common to all records, or an
+{!Dynamic_record.Initializer}, which (lazily) calls a function each time a new field is needed.
 {[
 (* A record to represent information about a person *)
 module Person = Dynamic_record.Make(Dynamic_record.NoOperands)()
@@ -40,13 +44,23 @@ module Person = Dynamic_record.Make(Dynamic_record.NoOperands)()
 (* Creating a field with a functor *)
 module Name = Person.Field(struct
   type t = string
-  let default = "<unnamed>"
+  let default = Dynamic_record.Value "<unnamed>"
   include Dynamic_record.NoFieldOperands
 end)()
 
 (* Creating a field with a function *)
 let age = Person.field {
-  default = -1;
+  default = Dynamic_record.Value (-1);
+  unary_operand = Dynamic_record.NoFieldOperands.unary_operand;
+  binary_operand= Dynamic_record.NoFieldOperands.binary_operand;
+}
+
+(* For fields which contain mutable values, an default initilizer may be used
+   instead of a value *)
+let use_name = Person.field {
+  default = Dynamic_record.Initializer (fun () ->
+    Format.printf "Initializing use_name@.";
+    ref "");
   unary_operand = Dynamic_record.NoFieldOperands.unary_operand;
   binary_operand= Dynamic_record.NoFieldOperands.binary_operand;
 }
@@ -54,7 +68,7 @@ let age = Person.field {
 (* Creating a mutable field via a functor *)
 module Status = Person.MutableField(struct
   type t = [`Superuser | `Admin | `User | `Unregistered]
-  let default = `Unregistered
+  let default = Dynamic_record.Value `Unregistered
   include Dynamic_record.NoFieldOperands
 end)()
 ]}
@@ -77,12 +91,16 @@ equivalent dynamic record definitions.
 # (* Classic ocaml *) let john = {
   name = "John Doe";
   age = 21;
+  use_name = ref "Jonny";
   status = `User; };;
-val john : person = {name = "John Doe"; age = 21; status = `User}
+val john : person =
+  {name = "John Doe"; age = 21; use_name = {contents = "Jonny"};
+   status = `User}
 
 # (* Dynamic records *) let john' : Person.t = Person.init |>
     Name.update "John Doe" |>
     age.update 21 |>
+    use_name.update (ref "Jonny") |>
     Status.update `User |>
   Person.finish;;
 val john' : Status.record = <abstr>
@@ -120,6 +138,11 @@ val jane : Status.record = <abstr>
 
 # age.get jane;;
 - : int = -1
+
+# (* Not that the initializer is only called when the value is explicitly needed *)
+  use_name.get jane;;
+Initializing use_name
+- : string ref = {contents = ""}
 ]}
 When initializing a single field, an alias {{!Dynamic_record.FIELD.init}[Field.init]} is provided:
 {[
@@ -131,7 +154,7 @@ Fields can even be added after values have been created:
 {[
 module Friends = Person.MutableField(struct
   type t = Person.t list (* Fields can also reference the record type itself! *)
-  let default = []
+  let default = Dynamic_record.Value []
   include Dynamic_record.NoFieldOperands
 end)()
 ]}
@@ -149,7 +172,9 @@ Creating slight variants of record is done similarly to creating new records,
 simply replace the {{!Dynamic_record.S.init}[Record.init]} by a {{!Dynamic_record.S.val-update}[Record.update old_value]}:
 {[
 # (* Classic ocaml *) let john_clone = { john with age = 25 };;
-val john_clone : person = {name = "John Doe"; age = 25; status = `Admin}
+val john_clone : person =
+  {name = "John Doe"; age = 25; use_name = {contents = "Jonny"};
+   status = `Admin}
 
 # (* Dynamic records *) let john'_clone = Person.update john' |> age.update 25 |> Person.finish;;
 val john'_clone : Friends.record = <abstr>
@@ -162,7 +187,9 @@ val john'_clone : Friends.record = <abstr>
 ]}
 
 A {{!Dynamic_record.S.copy}[copy]} function is provided to create shallow copies of
-records.
+records. Note however, that in our example, the [copy] shares its [use_name] with
+the original, which may be undesired as the [use_name] is mutable. For deep copies,
+you need to implement a {{!clone}clone operator}.
 
 {1:operands Record-wide operations}
 
@@ -211,14 +238,14 @@ module Operands = struct
 end
 ]}
 
-Now we can define the record and fields:
+Now we can define the record and fields.
 {[
 (* A record to represent information about a person *)
 module Person = Dynamic_record.Make(Operands)()
 
 module Name = Person.Field(struct
   type t = string
-  let default = "<unnamed>"
+  let default = Dynamic_record.Value "<unnamed>"
   let unary_operand: type a. a Operands.unary_operand -> a -> t -> a = fun op acc v ->
     match op with
     | Hash -> acc lxor Hashtbl.hash v (* or use a smarter hash for a pair than xor *)
@@ -238,11 +265,11 @@ let age = (* We need a let-binding here to add the type annotation *)
     match op with
     | Equal -> acc == Int.equal vl vr
     | Compare -> if acc <> 0 then acc else Int.compare vl vr in
-  Person.field { default = -1; unary_operand; binary_operand; }
+  Person.field { default = Dynamic_record.Value (-1); unary_operand; binary_operand; }
 
 module Status = Person.MutableField(struct
   type t = [`Superuser | `Admin | `User | `Unregistered]
-  let default = `Unregistered
+  let default = Dynamic_record.Value `Unregistered
   let unary_operand: type a. a Operands.unary_operand -> a -> t -> a = fun op acc v ->
     match op with
     | Hash -> acc lxor (match v with
@@ -298,7 +325,7 @@ val john : Status.record = <abstr>
 - : bool = false
 ]}
 
-{2 Operations returning records}
+{2:clone Operations returning records}
 
 In order to implement a [clone] operator however, we need {{: https://ocaml.org/manual/4.11/manual024.html}recursive modules}
 so that the operand module can access the type of the record.
