@@ -7,7 +7,7 @@ This library contains a single module: {!Dynamic_record}.
 Dynamic records are similar to ocaml records, except that their number and order
 of fields isn't statically known. Fields can be added dynamically at any time,
 including after records have already been created. Each field comes with a
-{{!Dynamic_record.S.TYPE_AND_OPERANDS.default}[default]} value, which is used
+{{!Dynamic_record.S.FIELD_PARAMETER.default}[default]} value, which is used
 to initialize new records.
 
 Accessing fields and adding new fields are both constant time
@@ -36,18 +36,22 @@ they are discussed in detail in {!operands}):
 (* A record to represent information about a person *)
 module Person = Dynamic_record.Make(Dynamic_record.NoOperands)()
 
+(* Fields can be created by either functor or function calls: *)
+(* Creating a field with a functor *)
 module Name = Person.Field(struct
   type t = string
   let default = "<unnamed>"
   include Dynamic_record.NoFieldOperands
 end)()
 
-module Age = Person.Field(struct
-  type t = int
-  let default = -1
-  include Dynamic_record.NoFieldOperands
-end)()
+(* Creating a field with a function *)
+let age = Person.field {
+  default = -1;
+  unary_operand = Dynamic_record.NoFieldOperands.unary_operand;
+  binary_operand= Dynamic_record.NoFieldOperands.binary_operand;
+}
 
+(* Creating a mutable field via a functor *)
 module Status = Person.MutableField(struct
   type t = [`Superuser | `Admin | `User | `Unregistered]
   let default = `Unregistered
@@ -76,9 +80,9 @@ equivalent dynamic record definitions.
   status = `User; };;
 val john : person = {name = "John Doe"; age = 21; status = `User}
 
-# let john' : Person.t = Person.init |>
+# (* Dynamic records *) let john' : Person.t = Person.init |>
     Name.update "John Doe" |>
-    Age.update 21 |>
+    age.update 21 |>
     Status.update `User |>
   Person.finish;;
 val john' : Status.record = <abstr>
@@ -94,6 +98,9 @@ mutated via {{!Dynamic_record.MUTABLE_FIELD.set}[MutableField.set]}:
 # (* Dynamic records *) Name.get john';;
 - : string = "John Doe"
 
+# (* Dynamic records *) age.get john';;
+- : int = 21
+
 # (* Classic ocaml *) john.status <- `Admin;;
 - : unit = ()
 
@@ -106,12 +113,12 @@ mutated via {{!Dynamic_record.MUTABLE_FIELD.set}[MutableField.set]}:
 
 
 Unlike OCaml records however, dynamic records can be under-specified. In that case,
-all underspecified fields have their {{!Dynamic_record.S.TYPE_AND_OPERANDS.default}[default]} value.
+all underspecified fields have their {{!Dynamic_record.S.FIELD_PARAMETER.default}[default]} value.
 {[
 # let jane : Person.t = Person.init |> Name.update "Jane Doe" |> Person.finish;;
 val jane : Status.record = <abstr>
 
-# Age.get jane;;
+# age.get jane;;
 - : int = -1
 ]}
 When initializing a single field, an alias {{!Dynamic_record.FIELD.init}[Field.init]} is provided:
@@ -144,13 +151,13 @@ simply replace the {{!Dynamic_record.S.init}[Record.init]} by a {{!Dynamic_recor
 # (* Classic ocaml *) let john_clone = { john with age = 25 };;
 val john_clone : person = {name = "John Doe"; age = 25; status = `Admin}
 
-# (* Dynamic records *) let john'_clone = Person.update john' |> Age.update 25 |> Person.finish;;
+# (* Dynamic records *) let john'_clone = Person.update john' |> age.update 25 |> Person.finish;;
 val john'_clone : Friends.record = <abstr>
 ]}
 For single field updates, an alias {{!Dynamic_record.FIELD.single_update}[Field.single_update]}
 is provided:
 {[
-# let john'_clone = Age.single_update john' 25;;
+# let john'_clone = age.single_update john' 25;;
 val john'_clone : Friends.record = <abstr>
 ]}
 
@@ -174,8 +181,8 @@ Essentially, {b an operand is a fold on all record fields}.
   function which specifies initial values (operand values
   for the empty record).
 - Finally, each field functor must specify how the operand acts on the field via its
-  {{!Dynamic_record.S.TYPE_AND_OPERANDS.unary_operand}[unary_operand : 'a unary_operand -> 'a -> field_value -> 'a]} and
-  {{!Dynamic_record.S.TYPE_AND_OPERANDS.binary_operand}[binary_operand : 'a binary_operand -> 'a -> field_value -> field_value  -> 'a]}
+  {{!Dynamic_record.S.FIELD_PARAMETER.unary_operand}[unary_operand : 'a unary_operand -> 'a -> field_value -> 'a]} and
+  {{!Dynamic_record.S.FIELD_PARAMETER.binary_operand}[binary_operand : 'a binary_operand -> 'a -> field_value -> field_value  -> 'a]}
   functor parameters.
 
 In our previous {{!example}example}, we used the {{!Dynamic_record.NoOperands}[NoOperands]},
@@ -222,19 +229,16 @@ module Name = Person.Field(struct
     | Compare -> if acc <> 0 then acc else String.compare vl vr
 end)()
 
-module Age = Person.Field(struct
-  type t = int
-  let default = -1
-  include Dynamic_record.NoFieldOperands
-  let unary_operand: type a. a Operands.unary_operand -> a -> t -> a = fun op acc v ->
+let age = (* We need a let-binding here to add the type annotation *)
+  let unary_operand: type a. a Operands.unary_operand -> a -> int -> a = fun op acc v ->
     match op with
     | Hash -> acc lxor v
-    | Format fmt -> Format.fprintf fmt "@ @[age=%d;@]" v
-  let binary_operand: type a. a Operands.binary_operand -> a -> t -> t -> a = fun op acc vl vr ->
+    | Format fmt -> Format.fprintf fmt "@ @[age=%d;@]" v in
+  let binary_operand: type a. a Operands.binary_operand -> a -> int -> int -> a = fun op acc vl vr ->
     match op with
     | Equal -> acc == Int.equal vl vr
-    | Compare -> if acc <> 0 then acc else Int.compare vl vr
-end)()
+    | Compare -> if acc <> 0 then acc else Int.compare vl vr in
+  Person.field { default = -1; unary_operand; binary_operand; }
 
 module Status = Person.MutableField(struct
   type t = [`Superuser | `Admin | `User | `Unregistered]
@@ -278,7 +282,7 @@ Which can now be used like any other function:
 {[
 # let john : Person.t = Person.init |>
     Name.update "John Doe" |>
-    Age.update 21 |>
+    age.update 21 |>
     Status.update `User |>
   Person.finish;;
 val john : Status.record = <abstr>
@@ -290,7 +294,7 @@ val john : Status.record = <abstr>
 # equal_person john john;;
 - : bool = true
 
-# equal_person john (Age.single_update john 24);;
+# equal_person john (age.single_update john 24);;
 - : bool = false
 ]}
 

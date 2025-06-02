@@ -26,7 +26,7 @@ module type FIELD = sig
       [MyRecord.update record |> MyField.update value |> MyRecord.finish] *)
 
   val init: t -> record
-  (** [init value] creates a new record where all fields have their {{!Dynamic_record.S.TYPE_AND_OPERANDS.default}[default]} value except this
+  (** [init value] creates a new record where all fields have their {{!Dynamic_record.S.FIELD_PARAMETER.default}[default]} value except this
       one, which is set to [value].
 
       This is equivalent to [MyRecord.init |> MyField.update value |> MyRecord.finish] *)
@@ -114,7 +114,7 @@ module type S = sig
 
   val init: update
   (** Create an update from the empty record, aka the record where all fields are
-      set to their {!TYPE_AND_OPERANDS.default} values. *)
+      set to their {!FIELD_PARAMETER.default} values. *)
 
   val update: t -> update
   (** Create an update from an existing record *)
@@ -124,15 +124,20 @@ module type S = sig
       copying/memory allocation. *)
 
   (** {1 Creating fields} *)
-  (** Fields are created by calling the {!Field} or {!MutableField} functors.
+  (** Fields are created by calling the {!Field} or {!MutableField} functors,
+      or, equivalently, the {!val-field} or {!val-mutable_field} functions.
       Field do not have an explicit name at runtime. They are named by assigning
       the functor result to a module:
       {[
-        module MyFieldName = Field(Type)
+        module MyFieldName = Record.Field(Type)
+        let my_field = Record.field typ
       ]} *)
 
+  (** {2 Functorial interface} *)
+  (** These functors allow creating fields as modules. *)
+
   (** The information required to initialize a field *)
-  module type TYPE_AND_OPERANDS = sig
+  module type FIELD_PARAMETER = sig
     type t
     (** The type of the new field *)
 
@@ -146,17 +151,58 @@ module type S = sig
     (** Specify how each binary_operand acts on this field *)
   end
 
-  (** Define a new record field with the given type and default value *)
-  module Field(T: TYPE_AND_OPERANDS)() : FIELD
+  (** Define a new record field with the given type and default value, equivalent to the {!val-field} function. *)
+  module Field(T: FIELD_PARAMETER)() : FIELD
     with type t = T.t
      and type record = t
      and type update = update
 
-  (** A new record field that can be mutated *)
-  module MutableField(T: TYPE_AND_OPERANDS)() : MUTABLE_FIELD
+  (** A new record field that can be mutated, equivalent to the {!val-mutable_field} function. *)
+  module MutableField(T: FIELD_PARAMETER)() : MUTABLE_FIELD
     with type t = T.t
      and type record = t
      and type update = update
+
+  (** {2 Functional interface} *)
+  (** Fields can also be created using functions and records. This is equivalent
+      to the functorial interface, but can be more lightweight when used in a
+      function body, as it avoids using {{: https://dev.realworldocaml.org/first-class-modules.html}first class modules}. *)
+
+  (** A record regrouping the information to create a field of type ['a].
+      This is equivalent to {{!FIELD_PARAMETER}[FIELD_PARAMETER with type t = 'a]}
+      in the functorial interface.*)
+  type 'a field_parameter = {
+    default: 'a; (** See {!FIELD_PARAMETER.default} *)
+    unary_operand: 'b. 'b unary_operand -> 'b -> 'a -> 'b; (** See {!FIELD_PARAMETER.unary_operand} *)
+    binary_operand: 'b. 'b binary_operand -> 'b -> 'a -> 'a -> 'b; (** See {!FIELD_PARAMETER.binary_operand} *)
+  }
+
+  (** A field value, this is equivalent to the {!FIELD} module type in the
+      modular interface *)
+  type 'a field = {
+    get: t -> 'a; (** See {!FIELD.get} *)
+    update: 'a -> update -> update; (** See {!FIELD.val-update} *)
+    single_update: t -> 'a -> t;  (** See {!FIELD.single_update} *)
+  }
+
+  (** A mutable field value, equivalent to the {!MUTABLE_FIELD} module type in the
+      modular interface*)
+  type 'a mutable_field = {
+    get: t -> 'a; (** See {!MUTABLE_FIELD.get} *)
+    update: 'a -> update -> update; (** See {!MUTABLE_FIELD.val-update} *)
+    single_update: t -> 'a -> t;  (** See {!MUTABLE_FIELD.single_update} *)
+    set: t -> 'a -> unit; (** See {!MUTABLE_FIELD.set} *)
+  }
+
+  (** Define a new field with the given type and default value, equivalent to the {!Field} functor. *)
+  val field: 'a field_parameter -> 'a field
+
+  (** Defina a new mutable field with the given type and default value, equivalent to the {!MutableField} functor. * *)
+  val mutable_field: 'a field_parameter -> 'a mutable_field
+
+  val field_of_mutable_field: 'a mutable_field -> 'a field
+  (** Cast a {{!type-mutable_field}['a mutable_field]} into a {{!type-field}['a field]},
+      forgets that the field is mutable. *)
 
   (** {1 Record-wide operations} *)
 

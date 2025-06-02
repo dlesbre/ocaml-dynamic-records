@@ -84,14 +84,14 @@ module Make(O: OPERANDS)() = struct
     else hash a (i+1) (Hashtbl.hash (acc,get i a))
   let hash a = hash a 0 0
 
-  module type TYPE_AND_OPERANDS = sig
+  module type FIELD_PARAMETER = sig
     type t
     val default: t
     val unary_operand: 'a unary_operand -> 'a -> t -> 'a
     val binary_operand: 'a binary_operand -> 'a -> t -> t -> 'a
   end
 
-  module MutableField(T: TYPE_AND_OPERANDS)() = struct
+  module MutableField(T: FIELD_PARAMETER)() = struct
     type record = t
     type nonrec update = update
     type t = T.t
@@ -149,6 +149,47 @@ module Make(O: OPERANDS)() = struct
   end
 
   module Field = MutableField
+
+  type 'a field_parameter = {
+    default: 'a;
+    unary_operand: 'b. 'b unary_operand -> 'b -> 'a -> 'b;
+    binary_operand: 'b. 'b binary_operand -> 'b -> 'a -> 'a -> 'b;
+  }
+
+
+  type 'a field = {
+    get: t -> 'a;
+    update: 'a -> update -> update;
+    single_update: t -> 'a -> t;
+  }
+
+  type 'a mutable_field = {
+    get: t -> 'a;
+    update: 'a -> update -> update;
+    single_update: t -> 'a -> t;
+    set: t -> 'a -> unit;
+  }
+
+  let mutable_field (type a) (p: a field_parameter) : a mutable_field =
+    let module Field = MutableField(struct
+      type t = a
+      let default = p.default
+      let unary_operand = p.unary_operand
+      let binary_operand = p.binary_operand
+    end)() in {
+      get = Field.get;
+      update = Field.update;
+      single_update = Field.single_update;
+      set = Field.set;
+    }
+
+  let field_of_mutable_field (p: 'a mutable_field) = {
+    get = p.get;
+    update = p.update;
+    single_update = p.single_update;
+  }
+
+  let field p = field_of_mutable_field (mutable_field p)
 end
 
 module NoOperands = struct
