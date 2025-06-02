@@ -376,3 +376,31 @@ Specifically, I've found a need for such records in two cases:
   run a runtime, and each analysis might need to store some information in the
   global analyser state. Using dynamic record enables each analysis to extend the
   global state with the fields it needs.
+
+{1 Comparison to other OCaml libraries}
+
+Other libraries in OCaml offer similar functionality to [dynamic-records]:
+
+{2 Records}
+
+The {{: https://github.com/cryptosense/records}records} library also creates dynamic records,
+but has a few key differences:
+- Fields must be explicitly named with a unique string;
+- Records must be sealed before values are creating, while [synamic-records] allows
+  adding fields seemlessly even after value creation;
+- Record fields are initialy unset, and accessing them is an error. In contrast,
+  [dynamic-records] requires a default value or initializer for each field;
+- All fields are mutable.
+
+{2 Dependant maps}
+
+One can achieve a similar behavior using dependant maps like {{: https://gitlab.inria.fr/bmontagu/dmap}dmap} or
+{{: https://codex.top/api/patricia-tree/}patricia-tree}. The trick is to use
+an {{: https://ocaml.org/manual/4.11/extensiblevariants.html}extensible variant}
+GADT for the type of keys. Creating a field is then just a matter of adding a new
+constructor to that variant with the correct type.
+- This is a bit finicky as it requires building a polymorphic comparison
+  function on the extensible variant, but can be done with a little [Obj] magic;
+- Undefined fields are absent, and return [None] or raise [Not_found] when accessed;
+- Field access is logarithmic in the number of defined fields, and no longer linear;
+- All fields are immutable.
