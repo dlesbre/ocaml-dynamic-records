@@ -3,28 +3,60 @@ include Signatures
 
 let error msg = failwith ("dynamic-records internal error: " ^ msg)
 
+module type FIELD_VALUE = sig
+  type fields
+  module NewField(T: sig type t end) : sig
+    val value_of_fields: fields -> T.t
+    val fields_of_value: T.t -> fields
+  end
+end
+
 module Make(O: OPERANDS)() = struct
-  type t = Obj.t array ref
+
+  module TypeSafe : FIELD_VALUE = struct
+    type fields = ..
+
+    module NewField(T: sig type t end) = struct
+      type fields += F of T.t
+      let value_of_fields = function
+        | F x -> x
+        | _ -> error "type mismatch in fields"
+
+      let fields_of_value t = F t
+    end
+  end
+
+  (* The type information is already encoded in each fields position,
+     therefore we can forget it. This unsafe version is slightly faster as it
+     avoids an indirection and a dynamic check. *)
+  module TypeUnsafe : FIELD_VALUE = struct
+    type fields = Obj.t
+
+    module NewField(T: sig type t end) = struct
+      let value_of_fields: fields -> T.t = Obj.obj
+      let fields_of_value = Obj.repr
+    end
+  end
+
+  include TypeUnsafe
+
+  type t = fields array ref
   type 'a unary_operand = 'a O.unary_operand
   type 'a binary_operand = 'a O.binary_operand
 
-  type unary_wrapper = { f_unary: 'a. 'a unary_operand -> 'a -> Obj.t -> 'a } [@@unboxed]
-  type binary_wrapper = { f_binary: 'a. 'a binary_operand -> 'a -> Obj.t -> Obj.t -> 'a } [@@unboxed]
+  type unary_wrapper = { f_unary: 'a. 'a unary_operand -> 'a -> fields -> 'a } [@@unboxed]
+  type binary_wrapper = { f_binary: 'a. 'a binary_operand -> 'a -> fields -> fields -> 'a } [@@unboxed]
 
   (** A value for extra fields *)
   type defaults =
-    | DValue of Obj.t
-    | DInit of (unit -> Obj.t)
+    | DValue of fields
+    | DInit of (unit -> fields)
     | DUninitialized
   let uninit_default = DUninitialized
   let uninit_unary = { f_unary=fun _ _ -> error "Uninitilized unary operand"}
   let uninit_binary = { f_binary=fun _ _ _ -> error "Uninitilized unary operand"}
 
   let initial_size = 5
-
-  let defaults_of_default = function
-    | Value x -> DValue (Obj.repr x)
-    | Initializer f -> DInit (fun () -> Obj.repr (f ()))
 
   let value_of_default = function
     | DValue x -> x
@@ -41,8 +73,8 @@ module Make(O: OPERANDS)() = struct
   let size = ref 0
 
   type update =
-    | FromNil of { max:int; update: (int * Obj.t) list}
-    | FromPrev of { max:int; update: (int * Obj.t) list; prev: t }
+    | FromNil of { max:int; update: (int * fields) list}
+    | FromPrev of { max:int; update: (int * fields) list; prev: t }
 
   let init = FromNil { max=0; update=[] }
   let update t = FromPrev { max = Array.length !t - 1; update = []; prev = t }
@@ -65,7 +97,7 @@ module Make(O: OPERANDS)() = struct
 
   let get offset t =
     if offset < Array.length !t
-    then Array.unsafe_get !t offset |> Obj.obj
+    then Array.unsafe_get !t offset
     else value_of_default !defaults.(offset)
 
   let rec unary_operand op r i acc =
@@ -114,14 +146,20 @@ module Make(O: OPERANDS)() = struct
     type nonrec update = update
     type t = T.t
 
+    module F = NewField(T)
+
+    let defaults_of_default = function
+      | Value x -> DValue (F.fields_of_value x)
+      | Initializer f -> DInit (fun () -> F.fields_of_value (f ()))
+
     let offset =
       let offset = !size in
       incr size;
       begin if Array.length !defaults >= !size
         then begin
           !defaults.(offset) <- defaults_of_default T.default;
-          !unary_operands.(offset) <- {f_unary=fun op acc r -> T.unary_operand op acc (Obj.obj r)};
-          !binary_operands.(offset) <- {f_binary=fun op acc l r -> T.binary_operand op acc (Obj.obj l) (Obj.obj r)};
+          !unary_operands.(offset) <- {f_unary=fun op acc r -> T.unary_operand op acc (F.value_of_fields r)};
+          !binary_operands.(offset) <- {f_binary=fun op acc l r -> T.binary_operand op acc (F.value_of_fields l) (F.value_of_fields r)};
         end else begin
           let newsize = 2 * !size in
           defaults := Array.init newsize (fun i ->
@@ -131,19 +169,19 @@ module Make(O: OPERANDS)() = struct
           );
           unary_operands := Array.init newsize (fun i ->
             if i < offset then !unary_operands.(i)
-            else if i = offset then {f_unary=fun op acc r -> T.unary_operand op acc (Obj.obj r)}
+            else if i = offset then {f_unary=fun op acc r -> T.unary_operand op acc (F.value_of_fields r)}
             else uninit_unary
           );
           binary_operands := Array.init newsize (fun i ->
             if i < offset then !binary_operands.(i)
-            else if i = offset then {f_binary=fun op acc l r -> T.binary_operand op acc (Obj.obj l) (Obj.obj r)}
+            else if i = offset then {f_binary=fun op acc l r -> T.binary_operand op acc (F.value_of_fields l) (F.value_of_fields r)}
             else uninit_binary
           )
         end end;
       offset
 
     let set t v =
-      let v = Obj.repr v in
+      let v = F.fields_of_value v in
       let len = Array.length !t in
       if offset < len
       then Array.unsafe_set !t offset v
@@ -155,11 +193,11 @@ module Make(O: OPERANDS)() = struct
       )
 
 
-    let get t = get offset t |> Obj.obj
+    let get t = get offset t |> F.value_of_fields
 
     let update' value = function
-      | FromNil x -> FromNil { max=max x.max offset; update=(offset,Obj.repr value)::x.update }
-      | FromPrev x -> FromPrev { x with max=max x.max offset; update=(offset,Obj.repr value)::x.update }
+      | FromNil x -> FromNil { max=max x.max offset; update=(offset,F.fields_of_value value)::x.update }
+      | FromPrev x -> FromPrev { x with max=max x.max offset; update=(offset,F.fields_of_value value)::x.update }
 
     let single_update x value = update x |> update' value |> finish
     let update = update'
