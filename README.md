@@ -13,7 +13,7 @@ to initialize new records.
 Accessing fields and adding new fields are both constant time
 operations.
 
-## Example usage {#example}
+## Example usage
 
 ### Creating a record and fields
 
@@ -33,7 +33,7 @@ type person = {
 ```
 
 You can create the equivalent as follows (ignore the `NoOperands` for now,
-they are discussed in detail in `operands`). Each field requires a default value,
+they are discussed in detail in [Record-wide operations](#record-wide-operations)). Each field requires a default value,
 which can be specified via the `'a default` type,
 which is either a fixed `Dynamic_record.Value`, common to all records, or an
 `Dynamic_record.Initializer`, which (lazily) calls a function each time a new field is needed.
@@ -205,7 +205,7 @@ records. Note however, that in our example, the `copy` shares its `use_name` wit
 the original, which may be undesired as the `use_name` is mutable. For deep copies,
 you need to implement a clone operator.
 
-## Record-wide operations {#operands}
+## Record-wide operations
 
 Grouping data in records is nice, but what if we want to examine all fields of the record?
 For instance, to define a smarter equality function (the included `equal`
@@ -346,7 +346,7 @@ val john : Status.record = <abstr>
 - : bool = false
 ```
 
-### Operations returning records {#clone}
+### Operations returning records
 
 In order to implement a `clone` operator however, we need [recursive modules](https://ocaml.org/manual/4.11/manual024.html)
 so that the operand module can access the type of the record.
