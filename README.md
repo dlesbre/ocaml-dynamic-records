@@ -1,0 +1,434 @@
+# Library dynamic-record
+
+This library contains a single module: `Dynamic_record`.
+
+## Dynamic records
+
+Dynamic records are similar to OCaml records, except that their number and order
+of fields isn't statically known. Fields can be added dynamically at any time,
+including after records have already been created. Each field comes with a
+`default` value, which is used
+to initialize new records.
+
+Accessing fields and adding new fields are both constant time
+operations.
+
+## Example usage {#example}
+
+### Creating a record and fields
+
+A dynamic record type can be created using the `Dynamic_record.Make` functor.
+Fields can then be added using the `Field` and
+`MutableField` functors.
+
+For example, consider the following OCaml record:
+
+```ocaml
+type person = {
+  name: string;
+  age: int;
+  use_name: string ref; (* example of a field whose contents are mutable *)
+  mutable status: [`Superuser | `Admin | `User | `Unregistered];
+}
+```
+
+You can create the equivalent as follows (ignore the `NoOperands` for now,
+they are discussed in detail in `operands`). Each field requires a default value,
+which can be specified via the `'a default` type,
+which is either a fixed `Dynamic_record.Value`, common to all records, or an
+`Dynamic_record.Initializer`, which (lazily) calls a function each time a new field is needed.
+
+```ocaml
+(* A record to represent information about a person *)
+module Person = Dynamic_record.Make(Dynamic_record.NoOperands)()
+
+(* Fields can be created by either functor or function calls: *)
+(* Creating a field with a functor *)
+module Name = Person.Field(struct
+  type t = string
+  let default = Dynamic_record.Value "<unnamed>"
+  include Dynamic_record.NoFieldOperands
+end)()
+
+(* Creating a field with a function *)
+let age = Person.field {
+  default = Dynamic_record.Value (-1);
+  unary_operand = Dynamic_record.NoFieldOperands.unary_operand;
+  binary_operand= Dynamic_record.NoFieldOperands.binary_operand;
+}
+
+(* For fields which contain mutable values, an default initilizer may be used
+   instead of a value *)
+let use_name = Person.field {
+  default = Dynamic_record.Initializer (fun () ->
+    Format.printf "Initializing use_name@.";
+    ref "");
+  unary_operand = Dynamic_record.NoFieldOperands.unary_operand;
+  binary_operand= Dynamic_record.NoFieldOperands.binary_operand;
+}
+
+(* Creating a mutable field via a functor *)
+module Status = Person.MutableField(struct
+  type t = [`Superuser | `Admin | `User | `Unregistered]
+  let default = Dynamic_record.Value `Unregistered
+  include Dynamic_record.NoFieldOperands
+end)()
+```
+
+### Building records and accessing field values
+
+Dynamic record use a secondary type, `update`, to
+represent list of changes to a record:
+
+- An `update` is created either from the empty
+  record via `init` or from an existing record via `update`
+  (similar to OCaml's `{x with ...}` syntax).
+- Once an update is created, you can chain the modification you wish to perform
+  via each `Field.update` function.
+- Once all changes are listed, call `finish` to create
+  the new record.
+
+
+For example, here is a series of OCaml definitions and updates, followed by their
+equivalent dynamic record definitions.
+
+```ocaml
+# (* Classic ocaml *) let john = {
+  name = "John Doe";
+  age = 21;
+  use_name = ref "Jonny";
+  status = `User; };;
+val john : person =
+  {name = "John Doe"; age = 21; use_name = {contents = "Jonny"};
+   status = `User}
+
+# (* Dynamic records *) let john' : Person.t = Person.init |>
+    Name.update "John Doe" |>
+    age.update 21 |>
+    use_name.update (ref "Jonny") |>
+    Status.update `User |>
+  Person.finish;;
+val john' : Status.record = <abstr>
+```
+
+(The toplevel says `john'` is of type `Status.record`, which is an alias for `Person.t`).
+
+Field values can be accessed via `Field.get` and, for mutable fields,
+mutated via `MutableField.set`:
+
+```ocaml
+# (* Classic ocaml *) john.name;;
+- : string = "John Doe"
+
+# (* Dynamic records *) Name.get john';;
+- : string = "John Doe"
+
+# (* Dynamic records *) age.get john';;
+- : int = 21
+
+# (* Classic ocaml *) john.status <- `Admin;;
+- : unit = ()
+
+# (* Dynamic records *) Status.set john' `Admin;;
+- : unit = ()
+
+# Status.get john';;
+- : Status.t = `Admin
+```
+
+Unlike OCaml records however, dynamic records can be under-specified. In that case,
+all under-specified fields have their `default` value.
+
+```ocaml
+# let jane : Person.t = Person.init |> Name.update "Jane Doe" |> Person.finish;;
+val jane : Status.record = <abstr>
+
+# age.get jane;;
+- : int = -1
+
+# (* Not that the initializer is only called when the value is explicitly needed *)
+  use_name.get jane;;
+Initializing use_name
+- : string ref = {contents = ""}
+```
+
+When initializing a single field, an alias `Field.init` is provided:
+
+```ocaml
+# let jane : Person.t = Name.init "Jane Doe";;
+val jane : Status.record = <abstr>
+```
+
+Fields can even be added after values have been created:
+
+```ocaml
+module Friends = Person.MutableField(struct
+  type t = Person.t list (* Fields can also reference the record type itself! *)
+  let default = Dynamic_record.Value []
+  include Dynamic_record.NoFieldOperands
+end)()
+```
+
+```ocaml
+# Friends.get john';;
+- : Friends.t = []
+
+# Friends.set john' [jane];;
+- : unit = ()
+```
+
+### Creating copies of records
+
+Creating slight variants of record is done similarly to creating new records,
+simply replace the `Record.init` by a `Record.update old_value`:
+
+```ocaml
+# (* Classic ocaml *) let john_clone = { john with age = 25 };;
+val john_clone : person =
+  {name = "John Doe"; age = 25; use_name = {contents = "Jonny"};
+   status = `Admin}
+
+# (* Dynamic records *) let john'_clone = Person.update john' |> age.update 25 |> Person.finish;;
+val john'_clone : Friends.record = <abstr>
+```
+
+For single field updates, an alias `Field.single_update`
+is provided:
+
+```ocaml
+# let john'_clone = age.single_update john' 25;;
+val john'_clone : Friends.record = <abstr>
+```
+
+A `copy` function is provided to create shallow copies of
+records. Note however, that in our example, the `copy` shares its `use_name` with
+the original, which may be undesired as the `use_name` is mutable. For deep copies,
+you need to implement a clone operator.
+
+## Record-wide operations {#operands}
+
+Grouping data in records is nice, but what if we want to examine all fields of the record?
+For instance, to define a smarter equality function (the included `equal`
+uses polymorphic equality to compare fields, which is far from ideal), or a printer,
+or a deep-copy function. This can be done through operands.
+
+Essentially, **an operand is a fold on all record fields**.
+
+- All possible operands are passed as an argument to `Dynamic_record.Make` as two [GADTs](https://ocaml.org/manual/5.3/gadts-tutorial.html),
+  `'a unary_operand` for unary
+  functions (like print) returning `'a` and
+  `'a binary_operand` for binary
+  functions (like equal) returning `'a`.
+- We must also specify an `init_unary : 'a unary_operand -> 'a`
+  function which specifies initial values (operand values
+  for the empty record).
+- Finally, each field functor must specify how the operand acts on the field via its
+  `unary_operand : 'a unary_operand -> 'a -> field_value -> 'a` and
+  `binary_operand : 'a binary_operand -> 'a -> field_value -> field_value  -> 'a`
+  functor parameters.
+
+
+In our previous example, we used the `NoOperands`,
+which specifies `'a unary_operand` as `'a empty`, a type with no values.
+Let us now redefine the same record, but with an `equal`, `compare`, `hash` and `print`
+operand. First, we define the operand module that specifies all four of these operands
+(two unary and two binary) and how their results are initialized and combined.
+
+```ocaml
+module Operands = struct
+  type _ unary_operand =
+    | Hash : int unary_operand
+    | Format : Format.formatter -> unit unary_operand (* Extra parameters are stored in the constructor *)
+
+  (* GADTs require explicit type annotations *)
+  let init_unary: type a. a unary_operand -> a = function
+    | Hash -> 0
+    | Format _fmt -> ()
+
+  type _ binary_operand =
+    | Equal : bool binary_operand
+    | Compare : int binary_operand
+
+  let init_binary: type a. a binary_operand -> a = function
+    | Equal -> true
+    | Compare -> 0
+end
+```
+
+Now we can define the record and fields.
+
+```ocaml
+(* A record to represent information about a person *)
+module Person = Dynamic_record.Make(Operands)()
+
+module Name = Person.Field(struct
+  type t = string
+  let default = Dynamic_record.Value "<unnamed>"
+  let unary_operand: type a. a Operands.unary_operand -> a -> t -> a = fun op acc v ->
+    match op with
+    | Hash -> acc lxor Hashtbl.hash v (* or use a smarter hash for a pair than xor *)
+    | Format fmt -> Format.fprintf fmt "@ @[name=%s;@]" v
+  let binary_operand: type a. a Operands.binary_operand -> a -> t -> t -> a = fun op acc vl vr ->
+    match op with
+    | Equal -> acc && String.equal vl vr
+    | Compare -> if acc <> 0 then acc else String.compare vl vr
+end)()
+
+let age = (* We need a let-binding here to add the type annotation *)
+  let unary_operand: type a. a Operands.unary_operand -> a -> int -> a = fun op acc v ->
+    match op with
+    | Hash -> acc lxor v
+    | Format fmt -> Format.fprintf fmt "@ @[age=%d;@]" v in
+  let binary_operand: type a. a Operands.binary_operand -> a -> int -> int -> a = fun op acc vl vr ->
+    match op with
+    | Equal -> acc == Int.equal vl vr
+    | Compare -> if acc <> 0 then acc else Int.compare vl vr in
+  Person.field { default = Dynamic_record.Value (-1); unary_operand; binary_operand; }
+
+module Status = Person.MutableField(struct
+  type t = [`Superuser | `Admin | `User | `Unregistered]
+  let default = Dynamic_record.Value `Unregistered
+  let unary_operand: type a. a Operands.unary_operand -> a -> t -> a = fun op acc v ->
+    match op with
+    | Hash -> acc lxor (match v with
+        | `Superuser -> 0
+        | `Admin -> 1
+        | `User -> 2
+        | `Unregistered -> 3)
+    | Format fmt -> Format.fprintf fmt "@ @[status=%s;@]" (match v with
+        | `Superuser -> "Superuser"
+        | `Admin -> "Admin"
+        | `User -> "User"
+        | `Unregistered -> "Unregistered")
+  let binary_operand: type a. a Operands.binary_operand -> a -> t -> t -> a = fun op acc vl vr ->
+    match op with
+    | Equal -> acc && vl = vr (* or implement custom equality *)
+    | Compare -> if acc <> 0 then acc else compare vl vr
+end)()
+```
+
+Using the operands can then be done by calling `Person.unary_operand`
+or `Person.binary_operand`. In practice,
+its is often a good idea to wrap these into separate functions:
+
+```ocaml
+# let equal_person = Person.binary_operand Operands.Equal;;
+val equal_person : Status.record -> Status.record -> bool = <fun>
+
+# let compare_person = Person.binary_operand Operands.Compare;;
+val compare_person : Status.record -> Status.record -> int = <fun>
+
+# let hash_person = Person.unary_operand Operands.Hash;;
+val hash_person : Status.record -> int = <fun>
+
+# let print_person = Format.printf "@[{|@[<hov>%a@]@ |}@]@." (fun fmt -> Person.unary_operand (Operands.Format fmt));;
+val print_person : Status.record -> unit = <fun>
+```
+
+Which can now be used like any other function:
+
+```ocaml
+# let john : Person.t = Person.init |>
+    Name.update "John Doe" |>
+    age.update 21 |>
+    Status.update `User |>
+  Person.finish;;
+val john : Status.record = <abstr>
+
+# print_person john;;
+{| name=John Doe; age=21; status=User; |}
+- : unit = ()
+
+# equal_person john john;;
+- : bool = true
+
+# equal_person john (age.single_update john 24);;
+- : bool = false
+```
+
+### Operations returning records {#clone}
+
+In order to implement a `clone` operator however, we need [recursive modules](https://ocaml.org/manual/4.11/manual024.html)
+so that the operand module can access the type of the record.
+
+```ocaml
+module rec Operands : sig
+  type _ unary_operand =
+    | Clone: Person.update unary_operand
+    (* return an update since we don't want to copy the whole record for each field *)
+
+  include Dynamic_record.OPERANDS with type 'a unary_operand := 'a unary_operand
+end = struct
+  include Dynamic_record.NoOperands
+  (* So that we don't have to define the binary_operands *)
+
+  type _ unary_operand =
+    | Clone: Person.update unary_operand
+
+  let init_unary: type a. a unary_operand -> a = function
+    | Clone -> Person.init
+end
+and Person
+  : Dynamic_record.S (* Exposing the operand type is mandatory to implement Fields *)
+      with type 'a unary_operand = 'a Operands.unary_operand
+       and type 'a binary_operand = Dynamic_record.empty
+  = Dynamic_record.Make(Operands)()
+```
+
+```ocaml
+# let clone record = Person.unary_operand Operands.Clone record |> Person.finish;;
+val clone : Person.t -> Person.t = <fun>
+```
+
+## Example use cases
+
+Dynamic records allow different separate modules to store information in the same
+space, while keeping each information (field declaration) local to each module.
+This can be useful when building a program that supports modular plugins - each plugin
+may or may not be loaded, and plugins may require adding information to a global state.
+
+Specifically, I've found a need for such records in two cases:
+
+- When building a command-line application, each module declares its command line
+  options individually. Dynamic records allow storing the program configuration
+  in a single space without having to group all these command line option declarations.
+  In turn, this makes merging options coming from the command line and options
+  coming from a configuration file easier.
+
+
+- When building a modular static analyzer, the user can select which analysis to
+  run a runtime, and each analysis might need to store some information in the
+  global analyzer state. Using dynamic record enables each analysis to extend the
+  global state with the fields it needs.
+
+
+## Comparison to other OCaml libraries
+
+Other libraries in OCaml offer similar functionality to `dynamic-records`:
+
+### Records
+
+The [records](https://github.com/cryptosense/records) library also creates dynamic records,
+but has a few key differences:
+
+- Fields must be explicitly named with a unique string;
+- Records must be sealed before values are creating, while `synamic-records` allows
+  adding fields seamlessly even after value creation;
+- Record fields are initially unset, and accessing them is an error. In contrast,
+  `dynamic-records` requires a default value or initializer for each field;
+- All fields are mutable.
+
+
+### Dependent maps
+
+One can achieve a similar behavior using dependent maps like [dmap](https://gitlab.inria.fr/bmontagu/dmap) or
+[patricia-tree](https://codex.top/api/patricia-tree/). The trick is to use
+an [extensible variant](https://ocaml.org/manual/4.11/extensiblevariants.html)
+GADT for the type of keys. Creating a field is then just a matter of adding a new
+constructor to that variant with the correct type.
+
+- This is a bit finicky as it requires building a polymorphic comparison
+  function on the extensible variant, but can be done with a little `Obj` magic;
+- Undefined fields are absent, and return `None` or raise `Not_found` when accessed;
+- Field access is logarithmic in the number of defined fields, and no longer linear;
+- All fields are immutable.
