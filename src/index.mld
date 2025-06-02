@@ -4,7 +4,7 @@ This library contains a single module: {!Dynamic_record}.
 
 {1 Dynamic records}
 
-Dynamic records are similar to ocaml records, except that their number and order
+Dynamic records are similar to OCaml records, except that their number and order
 of fields isn't statically known. Fields can be added dynamically at any time,
 including after records have already been created. Each field comes with a
 {{!Dynamic_record.S.FIELD_PARAMETER.default}[default]} value, which is used
@@ -107,7 +107,7 @@ val john' : Status.record = <abstr>
 ]}
 (The toplevel says [john'] is of type [Status.record], which is an alias for [Person.t]).
 
-Field values can be accesed via {{!Dynamic_record.FIELD.get}[Field.get]} and, for mutable fields,
+Field values can be accessed via {{!Dynamic_record.FIELD.get}[Field.get]} and, for mutable fields,
 mutated via {{!Dynamic_record.MUTABLE_FIELD.set}[MutableField.set]}:
 {[
 # (* Classic ocaml *) john.name;;
@@ -131,7 +131,7 @@ mutated via {{!Dynamic_record.MUTABLE_FIELD.set}[MutableField.set]}:
 
 
 Unlike OCaml records however, dynamic records can be under-specified. In that case,
-all underspecified fields have their {{!Dynamic_record.S.FIELD_PARAMETER.default}[default]} value.
+all under-specified fields have their {{!Dynamic_record.S.FIELD_PARAMETER.default}[default]} value.
 {[
 # let jane : Person.t = Person.init |> Name.update "Jane Doe" |> Person.finish;;
 val jane : Status.record = <abstr>
@@ -290,7 +290,7 @@ end)()
 ]}
 
 Using the operands can then be done by calling {{!Dynamic_record.S.val-unary_operand}[Person.unary_operand]}
-or  {{!Dynamic_record.S.val-binary_operand}[Person.binary_operand]}. In practice,
+or {{!Dynamic_record.S.val-binary_operand}[Person.binary_operand]}. In practice,
 its is often a good idea to wrap these into separate functions:
 {[
 # let equal_person = Person.binary_operand Operands.Equal;;
@@ -372,9 +372,9 @@ Specifically, I've found a need for such records in two cases:
   In turn, this makes merging options coming from the command line and options
   coming from a configuration file easier.
 
-- When building a modular static analyser, the user can select which analysis to
+- When building a modular static analyzer, the user can select which analysis to
   run a runtime, and each analysis might need to store some information in the
-  global analyser state. Using dynamic record enables each analysis to extend the
+  global analyzer state. Using dynamic record enables each analysis to extend the
   global state with the fields it needs.
 
 {1 Comparison to other OCaml libraries}
@@ -387,14 +387,14 @@ The {{: https://github.com/cryptosense/records}records} library also creates dyn
 but has a few key differences:
 - Fields must be explicitly named with a unique string;
 - Records must be sealed before values are creating, while [synamic-records] allows
-  adding fields seemlessly even after value creation;
-- Record fields are initialy unset, and accessing them is an error. In contrast,
+  adding fields seamlessly even after value creation;
+- Record fields are initially unset, and accessing them is an error. In contrast,
   [dynamic-records] requires a default value or initializer for each field;
 - All fields are mutable.
 
-{2 Dependant maps}
+{2 Dependent maps}
 
-One can achieve a similar behavior using dependant maps like {{: https://gitlab.inria.fr/bmontagu/dmap}dmap} or
+One can achieve a similar behavior using dependent maps like {{: https://gitlab.inria.fr/bmontagu/dmap}dmap} or
 {{: https://codex.top/api/patricia-tree/}patricia-tree}. The trick is to use
 an {{: https://ocaml.org/manual/4.11/extensiblevariants.html}extensible variant}
 GADT for the type of keys. Creating a field is then just a matter of adding a new
