@@ -139,7 +139,7 @@ val jane : Status.record = <abstr>
 # age.get jane;;
 - : int = -1
 
-# (* Not that the initializer is only called when the value is explicitly needed *)
+# (* Note that the initializer is only called when the value is explicitly needed *)
   use_name.get jane;;
 Initializing use_name
 - : string ref = {contents = ""}
